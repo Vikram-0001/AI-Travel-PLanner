@@ -24,6 +24,13 @@ import os
 import sys
 from typing import Any, Optional
 
+if sys.platform.startswith("win"):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 from dotenv import load_dotenv
 from groq import Groq
 from rich.console import Console
