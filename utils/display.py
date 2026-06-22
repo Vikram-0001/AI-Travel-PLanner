@@ -16,7 +16,7 @@ from rich.table import Table
 from rich.text import Text
 from rich import print as rprint
 
-console = Console()
+console = Console(legacy_windows=False)
 
 BRAND_COLOR = "bold cyan"
 USER_COLOR = "bold green"
@@ -29,16 +29,9 @@ DIM = "dim"
 # ── Session chrome ────────────────────────────────────────────────────────────
 
 def print_banner() -> None:
-    banner = Text()
-    banner.append("✈  AI Travel Planner", style="bold cyan")
-    banner.append("  |  ", style="dim")
-    banner.append("Powered by Groq + Amadeus + OpenWeather", style="dim")
-    console.print(Panel(banner, border_style="cyan", padding=(0, 2)))
-    console.print(
-        "  Type [bold]your travel request[/bold] and press Enter.  "
-        "Commands: [yellow]/trip[/yellow] · [yellow]/clear[/yellow] · [yellow]/help[/yellow] · [yellow]/quit[/yellow]\n",
-        highlight=False,
-    )
+    console.print("[bold cyan]✈  AI Travel Planner[/bold cyan]  [dim]|  Powered by Groq + Amadeus + OpenWeather[/dim]\n")
+    console.print("  Type [bold]your travel request[/bold] and press Enter.")
+    console.print("  Commands: [yellow]/trip[/yellow] · [yellow]/clear[/yellow] · [yellow]/help[/yellow] · [yellow]/quit[/yellow]\n")
 
 
 def print_help() -> None:
@@ -57,18 +50,21 @@ def print_help() -> None:
 
 def print_trip_context(ctx_dict: dict[str, Any]) -> None:
     """Render TripContext as a tidy table."""
-    table = Table(box=box.SIMPLE_HEAD, show_header=False, padding=(0, 2))
-    table.add_column("field", style="cyan", no_wrap=True, min_width=22)
+    table = Table(box=None, show_header=False, padding=0)
+    table.add_column("field", no_wrap=True, width=19)
     table.add_column("value", style="white")
 
-    skip = {"selected_flight", "selected_hotel", "attractions", "budget_breakdown"}
+    skip = {"selected_flight", "selected_hotel", "attractions", "budget_breakdown", "weather_summary"}
     for k, v in ctx_dict.items():
         if k in skip or v is None or v == [] or v == {}:
             continue
         label = k.replace("_", " ").title()
         table.add_row(label, str(v))
 
-    console.print(Panel(table, title="📋  Trip Context", border_style="cyan", padding=(0, 1)))
+    panel = Panel(table, title="📋  Trip Context", border_style="cyan", box=box.SQUARE, padding=(0, 2), width=68)
+    from rich.padding import Padding
+    console.print(Padding(panel, (0, 0, 0, 2)))
+    console.print()
 
 
 # ── Chat turns ────────────────────────────────────────────────────────────────
@@ -85,7 +81,8 @@ def print_agent_message(msg: str) -> None:
 
 def print_tool_call(tool_name: str, args_preview: str) -> None:
     console.print(
-        f"  [{TOOL_COLOR}]⚙  {tool_name}[/{TOOL_COLOR}]  [dim]{args_preview[:80]}[/dim]"
+        f"  [{TOOL_COLOR}]⚙  {tool_name}[/{TOOL_COLOR}]  [dim]{args_preview}[/dim]",
+        soft_wrap=True
     )
 
 
@@ -123,11 +120,15 @@ def render_hotels(offers: list[dict[str, Any]]) -> None:
     for i, h in enumerate(offers, 1):
         stars = "★" * (int(h.get("rating") or 0))
         cancellable = "✓ free cancel" if h.get("cancellable") else ""
-        rprint(
-            f"  [cyan]#{i}[/cyan]  [bold]{h.get('name')}[/bold]  {stars}\n"
+        line2 = (
             f"       {h.get('room_type','?')} · "
             f"{h.get('currency','USD')} {h.get('price_per_night',0):,.0f}/night  "
             f"(total {h.get('total_price',0):,.0f})  {cancellable}"
+        ).rstrip()
+        name = h.get('name', '?')
+        rprint(
+            f"  [cyan]#{i}[/cyan]  [bold]{name:<27}[/bold]  {stars}\n"
+            f"{line2}"
         )
 
 
@@ -137,8 +138,8 @@ def render_weather(data: dict[str, Any]) -> None:
     console.print(f"\n  [bold cyan]Weather: {city}, {country}[/bold cyan]")
     for day in data.get("forecast", []):
         rprint(
-            f"  {day['date']}  {day['emoji']}  {day['condition']}  "
-            f"[bold]{day['temp_min_c']}°C – {day['temp_max_c']}°C[/bold]  "
+            f"  {day['date']}  {day['emoji']}  {day['condition']:<8}"
+            f"{day['temp_min_c']}°C – {day['temp_max_c']}°C  "
             f"💧{day['humidity_pct']}%  💨{day['wind_kmh']} km/h"
         )
 
@@ -154,19 +155,44 @@ def render_attractions(pois: list[dict[str, Any]]) -> None:
 
 
 def render_budget(breakdown: dict[str, Any]) -> None:
-    table = Table(box=box.SIMPLE_HEAD, padding=(0, 2))
-    table.add_column("Item", style="cyan")
-    table.add_column("Amount", justify="right", style="white")
+    console.print()
+    table = Table(box=None, show_header=False, padding=0)
+    table.add_column("item", no_wrap=True, width=20)
+    table.add_column("val", style="white")
 
     currency = breakdown.pop("currency", "USD")
     per_person = breakdown.pop("per_person", None)
 
     for k, v in breakdown.items():
-        style = "bold green" if k == "TOTAL" else ("yellow" if "⚠" in k else "")
-        val = str(v) if isinstance(v, str) else f"{currency} {v:,.2f}"
-        table.add_row(k.replace("_", " ").title(), val, style=style)
+        key_lower = k.lower()
+        if "contingency" in key_lower:
+            label = "Contingency 10%"
+        elif "over_budget" in key_lower:
+            label = "⚠  Over Budget By"
+        elif "under_budget" in key_lower:
+            label = "✅  Under Budget By"
+        elif k == "TOTAL":
+            label = "TOTAL"
+        else:
+            label = k.replace("_", " ").title()
+        
+        style = "bold green" if label == "TOTAL" else ("yellow" if "⚠" in label else "")
+        
+        if isinstance(v, str):
+            parts = v.split()
+            if len(parts) == 2:
+                val = f"{parts[0]} {float(parts[1].replace(',', '')):>8,.2f}"
+            else:
+                val = v
+        else:
+            val = f"{currency} {v:>8,.2f}"
+            
+        table.add_row(label, val, style=style)
 
     if per_person is not None:
-        table.add_row("Per Person", f"{currency} {per_person:,.2f}", style="dim")
+        val = f"{currency} {per_person:>8,.2f}"
+        table.add_row("Per Person", val, style="dim")
 
-    console.print(Panel(table, title="💰  Budget Breakdown", border_style="green", padding=(0, 1)))
+    panel = Panel(table, title="💰  Budget Breakdown", border_style="green", box=box.ROUNDED, padding=(0, 2), width=58)
+    from rich.padding import Padding
+    console.print(Padding(panel, (0, 0, 0, 2)))
