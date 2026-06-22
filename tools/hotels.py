@@ -1,11 +1,8 @@
 """
 tools/hotels.py
 ---------------
-Two-step hotel search using the Amadeus Hotel Search API:
-  1. /v1/reference-data/locations/hotels/by-city   → get hotel IDs
-  2. /v3/shopping/hotel-offers                      → get live prices
-
-Falls back gracefully when either call fails.
+Hotel search using the Serp API (Google Hotels).
+Falls back gracefully when the call fails.
 """
 
 from __future__ import annotations
@@ -14,33 +11,42 @@ import os
 from typing import Any, Optional
 import requests
 
-from core.amadeus_auth import AmadeusAuth
 from core.models import ToolResult
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _parse_hotel_offer(offer: dict[str, Any]) -> dict[str, Any]:
-    hotel = offer.get("hotel", {})
-    offers_list = offer.get("offers", [{}])
-    best = offers_list[0] if offers_list else {}
-    price = best.get("price", {})
-    room = best.get("room", {})
-
+def _parse_hotel_offer(property_data: dict[str, Any], currency: str, check_in: str, check_out: str) -> dict[str, Any]:
+    name = property_data.get("name", "Unknown Hotel")
+    
+    # SerpAPI typically returns hotel_class as integer (e.g. 4)
+    hotel_class = property_data.get("hotel_class", 3)
+    
+    gps = property_data.get("gps_coordinates", {})
+    latitude = gps.get("latitude")
+    longitude = gps.get("longitude")
+    
+    # Price
+    rate_per_night = property_data.get("rate_per_night", {}).get("extracted_lowest", 0)
+    total_rate = property_data.get("total_rate", {}).get("extracted_lowest", 0)
+    
+    # Fallback to rate_per_night if total_rate is missing
+    if total_rate == 0 and rate_per_night > 0:
+        total_rate = rate_per_night # Just a fallback, true calculation requires date math
+        
     return {
-        "hotel_id": hotel.get("hotelId"),
-        "name": hotel.get("name", "Unknown Hotel"),
-        "rating": hotel.get("rating"),
-        "latitude": hotel.get("latitude"),
-        "longitude": hotel.get("longitude"),
-        "check_in": best.get("checkInDate"),
-        "check_out": best.get("checkOutDate"),
-        "room_type": room.get("typeEstimated", {}).get("category", "Standard"),
-        "beds": room.get("typeEstimated", {}).get("beds"),
-        "price_per_night": float(price.get("base", 0) or 0),
-        "total_price": float(price.get("total", 0) or 0),
-        "currency": price.get("currency", "USD"),
-        "cancellable": best.get("policies", {}).get("cancellations") is not None,
+        "hotel_id": property_data.get("type", "hotel") + "_" + name.replace(" ", "_"),
+        "name": name,
+        "rating": str(hotel_class),
+        "latitude": latitude,
+        "longitude": longitude,
+        "check_in": check_in,
+        "check_out": check_out,
+        "room_type": "Standard", # Google Hotels doesn't always specify room type at the top level
+        "beds": None,
+        "price_per_night": float(rate_per_night),
+        "total_price": float(total_rate),
+        "currency": currency,
+        "cancellable": True, # Hard to know without deep link, default True
     }
 
 
@@ -56,11 +62,11 @@ def search_hotels(
     ratings: Optional[list[int]] = None,   # e.g. [3, 4, 5]
 ) -> ToolResult:
     """
-    Search for hotel offers in a city.
-
+    Search for hotel offers using Serp API (Google Hotels).
+    
     Parameters
     ----------
-    city_code   : IATA city code, e.g. "PAR" for Paris
+    city_code   : IATA city code or location string
     check_in    : "YYYY-MM-DD"
     check_out   : "YYYY-MM-DD"
     adults      : number of guests
@@ -68,79 +74,63 @@ def search_hotels(
     currency    : ISO currency code
     ratings     : star-rating filter list (optional)
     """
-    base_url = os.getenv("AMADEUS_BASE_URL", "https://test.api.amadeus.com")
-
-    # ── Step 1: resolve hotel IDs for the city ────────────────────────────────
-    try:
-        loc_params: dict[str, Any] = {
-            "cityCode": city_code.upper(),
-            "radius": 20,
-            "radiusUnit": "KM",
-            "hotelSource": "ALL",
-        }
-        if ratings:
-            loc_params["ratings"] = ",".join(str(r) for r in ratings)
-
-        loc_resp = requests.get(
-            f"{base_url}/v1/reference-data/locations/hotels/by-city",
-            headers=AmadeusAuth.headers(),
-            params=loc_params,
-            timeout=15,
-        )
-        loc_resp.raise_for_status()
-        hotel_ids = [h["hotelId"] for h in loc_resp.json().get("data", [])[:20]]
-
-        if not hotel_ids:
-            return ToolResult(
-                success=False,
-                error=f"No hotels found for city code '{city_code}'.",
-                fallback_used=True,
-                fallback_note="Try a different IATA city code (e.g. 'PAR' for Paris).",
-            )
-
-    except Exception as exc:
+    api_key = os.getenv("SERP_API_KEY", "")
+    
+    if not api_key:
         return ToolResult(
             success=False,
-            error=f"Hotel location lookup failed: {exc}",
-            fallback_used=True,
-            fallback_note="Could not reach Amadeus hotel location API.",
+            error="SERP_API_KEY is not set in environment.",
         )
 
-    # ── Step 2: fetch live offers for those hotel IDs ─────────────────────────
+    endpoint = "https://serpapi.com/search.json"
+
+    # Use city_code as the query. SerpAPI resolves "PAR" or "Paris" to hotels there.
+    params: dict[str, Any] = {
+        "engine": "google_hotels",
+        "api_key": api_key,
+        "q": city_code,
+        "check_in_date": check_in,
+        "check_out_date": check_out,
+        "adults": adults,
+        "currency": currency,
+        "hl": "en",
+    }
+    
+    if ratings:
+        # SerpAPI google_hotels allows filtering by hotel class via 'hotel_classes' parameter (e.g. "3,4,5")
+        params["hotel_classes"] = ",".join(str(r) for r in ratings)
+
     try:
-        offer_resp = requests.get(
-            f"{base_url}/v3/shopping/hotel-offers",
-            headers=AmadeusAuth.headers(),
-            params={
-                "hotelIds": ",".join(hotel_ids[:20]),
-                "checkInDate": check_in,
-                "checkOutDate": check_out,
-                "adults": adults,
-                "currencyCode": currency,
-                "bestRateOnly": "true",
-            },
+        resp = requests.get(
+            endpoint,
+            params=params,
             timeout=20,
         )
-        offer_resp.raise_for_status()
-        raw_offers = offer_resp.json().get("data", [])
-
-        if not raw_offers:
+        resp.raise_for_status()
+        data = resp.json()
+        
+        properties = data.get("properties", [])
+        
+        if not properties:
             return ToolResult(
                 success=False,
                 error="No available hotel offers for these dates.",
                 fallback_used=True,
-                fallback_note="Hotels may be fully booked; try different dates.",
+                fallback_note="Hotels may be fully booked or location not found; try different dates/locations.",
             )
 
-        parsed = [_parse_hotel_offer(o) for o in raw_offers[:max_results]]
+        parsed = []
+        for prop in properties[:max_results]:
+            p = _parse_hotel_offer(prop, currency, check_in, check_out)
+            parsed.append(p)
+            
         return ToolResult(success=True, data=parsed)
 
     except requests.HTTPError as exc:
-        # Provide estimated fallback
         fallback = [
             {
                 "name": f"Estimated Hotel in {city_code}",
-                "rating": 3,
+                "rating": "3",
                 "room_type": "Standard",
                 "price_per_night": 80.0,
                 "total_price": 80.0,
@@ -153,7 +143,7 @@ def search_hotels(
             data=fallback,
             error=str(exc),
             fallback_used=True,
-            fallback_note="Amadeus hotel offers API error; showing estimates.",
+            fallback_note="Serp API error; showing estimates.",
         )
     except Exception as exc:
         return ToolResult(success=False, error=f"Hotel search failed: {exc}")

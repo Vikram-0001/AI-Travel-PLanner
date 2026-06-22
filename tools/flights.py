@@ -1,8 +1,8 @@
 """
 tools/flights.py
 ----------------
-Searches for one-way or round-trip flights via the Amadeus Flight Offers
-Search API (v2).  Falls back to a structured placeholder on failure so the
+Searches for one-way or round-trip flights via the Serp API (Google Flights).
+Falls back to a structured placeholder on failure so the
 agent can still reason about costs.
 """
 
@@ -12,36 +12,36 @@ import os
 from typing import Any, Optional
 import requests
 
-from core.amadeus_auth import AmadeusAuth
 from core.models import ToolResult
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _parse_offer(offer: dict[str, Any]) -> dict[str, Any]:
-    """Flatten a raw Amadeus offer into a concise dict."""
-    price = offer.get("price", {})
-    itineraries = offer.get("itineraries", [])
+def _parse_offer(offer: dict[str, Any], currency: str) -> dict[str, Any]:
+    """Flatten a raw Serp API Google Flights offer into a concise dict."""
+    price = offer.get("price", 0)
+    flights_data = offer.get("flights", [])
 
     legs: list[dict[str, Any]] = []
-    for itin in itineraries:
-        for seg in itin.get("segments", []):
-            legs.append({
-                "from": seg["departure"]["iataCode"],
-                "to": seg["arrival"]["iataCode"],
-                "dep": seg["departure"]["at"],
-                "arr": seg["arrival"]["at"],
-                "carrier": seg.get("carrierCode", "??"),
-                "flight_no": seg.get("carrierCode", "") + seg.get("number", ""),
-                "duration": itin.get("duration", ""),
-                "stops": len(itin.get("segments", [])) - 1,
-            })
+    for leg in flights_data:
+        departure = leg.get("departure_airport", {})
+        arrival = leg.get("arrival_airport", {})
+        legs.append({
+            "from": departure.get("id", ""),
+            "to": arrival.get("id", ""),
+            "dep": departure.get("time", ""),
+            "arr": arrival.get("time", ""),
+            "carrier": leg.get("airline", "??"),
+            "flight_no": leg.get("flight_number", ""),
+            "duration": leg.get("duration", 0),
+            "stops": len(offer.get("layovers", [])) if len(flights_data) == 1 else 0, # approximation
+        })
 
     return {
-        "id": offer.get("id"),
-        "total_price": float(price.get("grandTotal", 0)),
-        "currency": price.get("currency", "USD"),
-        "seats_left": offer.get("numberOfBookableSeats"),
+        "id": offer.get("departure_token", "unk"),
+        "total_price": float(price),
+        "currency": currency,
+        "seats_left": None,
         "legs": legs,
     }
 
@@ -59,7 +59,7 @@ def search_flights(
     currency: str = "USD",
 ) -> ToolResult:
     """
-    Search for flight offers.
+    Search for flight offers using Serp API (Google Flights).
 
     Parameters
     ----------
@@ -72,32 +72,41 @@ def search_flights(
     max_results     : how many offers to return (1-5 recommended)
     currency        : 3-letter ISO currency code
     """
-    base_url = os.getenv("AMADEUS_BASE_URL", "https://test.api.amadeus.com")
-    endpoint = f"{base_url}/v2/shopping/flight-offers"
+    api_key = os.getenv("SERP_API_KEY", "")
+    if not api_key:
+        return ToolResult(
+            success=False,
+            error="SERP_API_KEY is not set in environment.",
+        )
+
+    endpoint = "https://serpapi.com/search.json"
 
     params: dict[str, Any] = {
-        "originLocationCode": origin.upper(),
-        "destinationLocationCode": destination.upper(),
-        "departureDate": departure_date,
+        "engine": "google_flights",
+        "api_key": api_key,
+        "departure_id": origin.upper(),
+        "arrival_id": destination.upper(),
+        "outbound_date": departure_date,
         "adults": adults,
-        "max": max_results,
-        "currencyCode": currency,
-        "nonStop": "false",
+        "children": children,
+        "currency": currency,
+        "hl": "en",
     }
     if return_date:
-        params["returnDate"] = return_date
-    if children > 0:
-        params["children"] = children
+        params["return_date"] = return_date
 
     try:
         resp = requests.get(
             endpoint,
-            headers=AmadeusAuth.headers(),
             params=params,
             timeout=15,
         )
         resp.raise_for_status()
-        raw_offers = resp.json().get("data", [])
+        data = resp.json()
+        
+        raw_offers = data.get("best_flights", [])
+        if not raw_offers:
+            raw_offers = data.get("other_flights", [])
 
         if not raw_offers:
             return ToolResult(
@@ -110,11 +119,10 @@ def search_flights(
                 ),
             )
 
-        parsed = [_parse_offer(o) for o in raw_offers[:max_results]]
+        parsed = [_parse_offer(o, currency) for o in raw_offers[:max_results]]
         return ToolResult(success=True, data=parsed)
 
     except requests.HTTPError as exc:
-        # Amadeus test sandbox often rejects obscure routes — degrade gracefully
         fallback = {
             "note": "Live flight search unavailable; estimated prices shown.",
             "estimated_offers": [
@@ -124,7 +132,7 @@ def search_flights(
                     "currency": currency,
                     "seats_left": None,
                     "legs": [{"from": origin, "to": destination,
-                               "dep": f"{departure_date}T08:00",
+                               "dep": f"{departure_date} 08:00",
                                "carrier": "?", "flight_no": "—",
                                "stops": 0}],
                 }
@@ -135,7 +143,7 @@ def search_flights(
             data=fallback,
             error=str(exc),
             fallback_used=True,
-            fallback_note="Amadeus returned an error; showing estimated data instead.",
+            fallback_note="Serp API returned an error; showing estimated data instead.",
         )
     except Exception as exc:
         return ToolResult(success=False, error=f"Flight search failed: {exc}")
