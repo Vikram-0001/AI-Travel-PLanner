@@ -58,7 +58,7 @@ def search_hotels(
     check_out: str,         # YYYY-MM-DD
     adults: int = 1,
     max_results: int = 3,
-    currency: str = "USD",
+    currency: str = "INR",
     ratings: Optional[list[int]] = None,   # e.g. [3, 4, 5]
 ) -> ToolResult:
     """
@@ -132,8 +132,8 @@ def search_hotels(
                 "name": f"Estimated Hotel in {city_code}",
                 "rating": "3",
                 "room_type": "Standard",
-                "price_per_night": 80.0,
-                "total_price": 80.0,
+                "price_per_night": 6700.0,   # estimated INR price
+                "total_price": 6700.0,
                 "currency": currency,
                 "note": "Live pricing unavailable; estimate only.",
             }

@@ -29,13 +29,16 @@ optional keys:
   return_date       : string (YYYY-MM-DD)
   num_adults        : integer
   num_children      : integer
-  budget_usd        : float
-  currency          : string (ISO-4217)
+  budget_usd        : float  (ALWAYS in Indian Rupees INR — this field stores INR amounts)
+  currency          : string (always "INR" unless explicitly stated otherwise)
   trip_style        : string (e.g. "adventure", "relaxing")
   accommodation_type: string (e.g. "hotel", "hostel")
   interests         : list of strings
   special_requirements: list of strings
 
+IMPORTANT: All monetary values must be in Indian Rupees (INR ₹).
+If the user mentions a budget (e.g. "₹2 lakh", "2 lakh rupees", "200000 INR"),
+store it as a plain float in budget_usd (e.g. 200000.0).
 Include only keys that are explicitly mentioned.  If nothing is found,
 return {}.
 """

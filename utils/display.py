@@ -118,11 +118,24 @@ def render_flights(offers: list[dict[str, Any]]) -> None:
 
 def render_hotels(offers: list[dict[str, Any]]) -> None:
     for i, h in enumerate(offers, 1):
-        stars = "★" * (int(h.get("rating") or 0))
+        rating_val = h.get("rating")
+        stars_count = 0
+        if rating_val:
+            if isinstance(rating_val, (int, float)):
+                stars_count = int(rating_val)
+            else:
+                import re
+                match = re.search(r'\d+(\.\d+)?', str(rating_val))
+                if match:
+                    try:
+                        stars_count = int(float(match.group(0)))
+                    except ValueError:
+                        pass
+        stars = "★" * stars_count
         cancellable = "✓ free cancel" if h.get("cancellable") else ""
         line2 = (
             f"       {h.get('room_type','?')} · "
-            f"{h.get('currency','USD')} {h.get('price_per_night',0):,.0f}/night  "
+            f"{h.get('currency','INR')} {h.get('price_per_night',0):,.0f}/night  "
             f"(total {h.get('total_price',0):,.0f})  {cancellable}"
         ).rstrip()
         name = h.get('name', '?')
@@ -160,7 +173,7 @@ def render_budget(breakdown: dict[str, Any]) -> None:
     table.add_column("item", no_wrap=True, width=20)
     table.add_column("val", style="white")
 
-    currency = breakdown.pop("currency", "USD")
+    currency = breakdown.pop("currency", "INR")
     per_person = breakdown.pop("per_person", None)
 
     for k, v in breakdown.items():

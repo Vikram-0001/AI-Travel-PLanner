@@ -31,9 +31,16 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
+
 from dotenv import load_dotenv
+
+# pyrefly: ignore [missing-import]
 from groq import Groq
+
+# pyrefly: ignore [missing-import]
 from rich.console import Console
+
+# pyrefly: ignore [missing-import]
 from rich.prompt import Prompt
 
 from core.models import ConversationMemory, TripContext
@@ -82,7 +89,7 @@ Destination  : {ctx.destination or '—'}
 Departure    : {ctx.departure_date or '—'}
 Return       : {ctx.return_date or '—'}
 Travellers   : {ctx.num_adults} adult(s), {ctx.num_children} child(ren)
-Budget       : {f"${ctx.budget_usd:,.0f} {ctx.currency}" if ctx.budget_usd else '—'}
+Budget (INR) : {f'\u20b9{ctx.budget_usd:,.0f}' if ctx.budget_usd else '\u2014'}
 Style        : {ctx.trip_style or '—'}
 Interests    : {', '.join(ctx.interests) or '—'}
 {missing_note}
@@ -94,9 +101,11 @@ BEHAVIOUR RULES
 3. After tool results, synthesise them into a clean, terminal-friendly summary.
 4. Use bullet points and short sections; avoid long prose walls.
 5. When tools fail, explain the issue briefly and offer alternatives.
-6. Always present prices in the user's preferred currency when possible.
-7. Suggest practical next steps at the end of each planning response.
-8. IATA codes: use them internally but show city names to the user.
+6. ALWAYS use Indian Rupees (INR ₹) for ALL prices, costs, and budget figures.
+7. Present ALL prices in ₹ (INR) format — never in USD, EUR, or any other currency.
+8. The user's budget is their TOTAL amount available in ₹ INR. Track all expenses against it.
+9. Suggest practical next steps at the end of each planning response.
+10. IATA codes: use them internally but show city names to the user.
 """
 
 

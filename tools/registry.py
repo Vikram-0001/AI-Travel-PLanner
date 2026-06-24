@@ -15,7 +15,7 @@ from typing import Any
 from core.models import ToolResult
 from tools.flights import search_flights
 from tools.hotels import search_hotels
-from tools.weather import get_weather_forecast
+from tools.weather import get_weather_forecast, get_current_weather
 from tools.attractions import search_attractions
 from tools.budget import calculate_budget, currency_convert, haversine_distance
 
@@ -28,8 +28,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "function": {
             "name": "search_flights",
             "description": (
-                "Search for flight offers between two airports using Amadeus. "
-                "Use IATA codes where possible. Returns up to 3 ranked offers."
+                "Search for flight offers between two airports using Serp API (Google Flights). "
+                "Use IATA codes where possible. Returns up to 3 ranked offers in INR."
             ),
             "parameters": {
                 "type": "object",
@@ -41,7 +41,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "adults": {"type": "integer", "default": 1, "description": "Number of adult passengers"},
                     "children": {"type": "integer", "default": 0, "description": "Number of child passengers"},
                     "max_results": {"type": "integer", "default": 3},
-                    "currency": {"type": "string", "default": "USD"},
+                    "currency": {"type": "string", "default": "INR"},
                 },
                 "required": ["origin", "destination", "departure_date"],
             },
@@ -52,18 +52,18 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "function": {
             "name": "search_hotels",
             "description": (
-                "Search for hotel offers in a city using Amadeus. "
-                "Returns ranked offers with price, room type, and cancellation info."
+                "Search for hotel offers in a city using Serp API (Google Hotels). "
+                "Returns ranked offers with price, room type, and rating in INR."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "city_code": {"type": "string", "description": "IATA city code, e.g. PAR for Paris"},
+                    "city_code": {"type": "string", "description": "City name or code, e.g. Paris or PAR"},
                     "check_in": {"type": "string", "description": "Check-in date YYYY-MM-DD"},
                     "check_out": {"type": "string", "description": "Check-out date YYYY-MM-DD"},
                     "adults": {"type": "integer", "default": 1},
                     "max_results": {"type": "integer", "default": 3},
-                    "currency": {"type": "string", "default": "USD"},
+                    "currency": {"type": "string", "default": "INR"},
                     "ratings": {
                         "type": "array",
                         "items": {"type": "integer"},
@@ -88,6 +88,24 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "city": {"type": "string", "description": "City name, e.g. Paris"},
                     "country_code": {"type": "string", "description": "Optional 2-letter country code, e.g. FR"},
                     "days": {"type": "integer", "default": 5, "description": "Number of forecast days (max 5)"},
+                },
+                "required": ["city"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_weather",
+            "description": (
+                "Fetch current weather for a city using OpenWeatherMap. "
+                "Returns current temperature, conditions, humidity, wind, and other weather details."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "city": {"type": "string", "description": "City name, e.g. Paris"},
+                    "country_code": {"type": "string", "description": "Optional 2-letter country code, e.g. FR"},
                 },
                 "required": ["city"],
             },
@@ -124,22 +142,22 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "function": {
             "name": "calculate_budget",
             "description": (
-                "Create an itemised trip budget breakdown. "
+                "Create an itemised trip budget breakdown in INR. "
                 "Includes flights, hotel, food, local transport, activities, and 10% contingency. "
                 "Warns if total exceeds the user's stated budget."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "flight_cost": {"type": "number", "description": "Total flight cost for all passengers"},
-                    "hotel_cost_per_night": {"type": "number"},
+                    "flight_cost": {"type": "number", "description": "Total flight cost in INR for all passengers"},
+                    "hotel_cost_per_night": {"type": "number", "description": "Hotel cost per night in INR"},
                     "nights": {"type": "integer", "default": 0},
-                    "daily_food_budget": {"type": "number", "default": 50.0},
-                    "daily_transport_budget": {"type": "number", "default": 20.0},
-                    "activity_budget": {"type": "number", "default": 100.0},
+                    "daily_food_budget": {"type": "number", "default": 4000.0, "description": "Daily food budget per traveller in INR"},
+                    "daily_transport_budget": {"type": "number", "default": 1500.0, "description": "Daily transport budget per traveller in INR"},
+                    "activity_budget": {"type": "number", "default": 8000.0, "description": "Activity budget in INR"},
                     "num_travellers": {"type": "integer", "default": 1},
-                    "currency": {"type": "string", "default": "USD"},
-                    "total_budget": {"type": "number", "description": "User's stated total budget (optional)"},
+                    "currency": {"type": "string", "default": "INR"},
+                    "total_budget": {"type": "number", "description": "User's stated total budget in INR (optional)"},
                 },
                 "required": [],
             },
@@ -185,6 +203,7 @@ _CALLABLE_MAP: dict[str, Any] = {
     "search_flights": search_flights,
     "search_hotels": search_hotels,
     "get_weather_forecast": get_weather_forecast,
+    "get_current_weather": get_current_weather,
     "search_attractions": search_attractions,
     "calculate_budget": calculate_budget,
     "currency_convert": currency_convert,

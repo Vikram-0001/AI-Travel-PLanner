@@ -24,7 +24,7 @@ class TripContext(BaseModel):
     num_adults: int = 1
     num_children: int = 0
     budget_usd: Optional[float] = None
-    currency: str = "USD"
+    currency: str = "INR"
     trip_style: Optional[str] = None               # "adventure", "relaxing", "cultural", …
     accommodation_type: Optional[str] = None       # "hotel", "hostel", "airbnb", …
     interests: list[str] = Field(default_factory=list)
@@ -60,7 +60,7 @@ class TripContext(BaseModel):
         travellers = self.num_adults + self.num_children
         parts.append(f"{travellers} traveller{'s' if travellers > 1 else ''}")
         if self.budget_usd:
-            parts.append(f"budget ${self.budget_usd:,.0f}")
+            parts.append(f"budget ₹{self.budget_usd:,.0f}")
         return "  |  ".join(parts) if parts else "No trip details yet"
 
 

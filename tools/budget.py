@@ -101,17 +101,17 @@ def calculate_budget(
     flight_cost: Optional[float] = None,
     hotel_cost_per_night: Optional[float] = None,
     nights: int = 0,
-    daily_food_budget: float = 50.0,
-    daily_transport_budget: float = 20.0,
-    activity_budget: float = 100.0,
+    daily_food_budget: float = 4000.0,
+    daily_transport_budget: float = 1500.0,
+    activity_budget: float = 8000.0,
     num_travellers: int = 1,
-    currency: str = "USD",
+    currency: str = "INR",
     total_budget: Optional[float] = None,
 ) -> ToolResult:
     """
     Build an itemised trip budget and flag if it exceeds the total budget.
 
-    All monetary inputs should be in the same `currency`.
+    All monetary inputs should be in INR.
     """
     breakdown: dict[str, Any] = {}
     total = 0.0

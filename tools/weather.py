@@ -124,3 +124,76 @@ def get_weather_forecast(
         )
     except Exception as exc:
         return ToolResult(success=False, error=f"Weather fetch failed: {exc}")
+
+
+def get_current_weather(
+    city: str,
+    country_code: str = "",        # optional ISO-3166 code, e.g. "FR"
+) -> ToolResult:
+    """
+    Return current weather for `city`.
+
+    Parameters
+    ----------
+    city         : city name, e.g. "Paris"
+    country_code : optional 2-letter country code to disambiguate
+    """
+    api_key = os.getenv("OPENWEATHER_API_KEY", "")
+    if not api_key:
+        return ToolResult(
+            success=False,
+            error="OPENWEATHER_API_KEY not set in .env",
+            fallback_used=True,
+            fallback_note="Weather data unavailable; check API key.",
+        )
+
+    location = f"{city},{country_code}" if country_code else city
+
+    try:
+        resp = requests.get(
+            "https://api.openweathermap.org/data/2.5/weather",
+            params={"q": location, "appid": api_key},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+
+        # Extract current weather data
+        main = payload.get("main", {})
+        weather_info = payload.get("weather", [{}])[0]
+        wind = payload.get("wind", {})
+        
+        condition = weather_info.get("main", "Unknown")
+        emoji = _CONDITION_EMOJI.get(condition, "🌡️")
+
+        return ToolResult(
+            success=True,
+            data={
+                "city": payload.get("name", city),
+                "country": payload.get("sys", {}).get("country", country_code),
+                "condition": condition,
+                "emoji": emoji,
+                "temp_c": round(main.get("temp", 0) - 273.15, 1),
+                "feels_like_c": round(main.get("feels_like", 0) - 273.15, 1),
+                "humidity_pct": main.get("humidity", 0),
+                "wind_kmh": round(wind.get("speed", 0) * 3.6, 1),
+                "description": weather_info.get("description", "").title(),
+                "pressure_hpa": main.get("pressure", 0),
+                "visibility_km": round(payload.get("visibility", 0) / 1000, 1),
+                "cloudiness_pct": payload.get("clouds", {}).get("all", 0),
+            },
+        )
+
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        msg = f"OpenWeather API error {status}"
+        if status == 404:
+            msg = f"City '{city}' not found in OpenWeather."
+        return ToolResult(
+            success=False,
+            error=msg,
+            fallback_used=True,
+            fallback_note="Check city spelling or add country code (e.g. 'London,GB').",
+        )
+    except Exception as exc:
+        return ToolResult(success=False, error=f"Current weather fetch failed: {exc}")

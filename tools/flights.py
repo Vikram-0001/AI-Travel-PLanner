@@ -56,7 +56,7 @@ def search_flights(
     adults: int = 1,
     children: int = 0,
     max_results: int = 3,
-    currency: str = "USD",
+    currency: str = "INR",
 ) -> ToolResult:
     """
     Search for flight offers using Serp API (Google Flights).
@@ -128,7 +128,7 @@ def search_flights(
             "estimated_offers": [
                 {
                     "id": "est-1",
-                    "total_price": 450.0,
+                    "total_price": 45000.0,   # estimated INR price
                     "currency": currency,
                     "seats_left": None,
                     "legs": [{"from": origin, "to": destination,
